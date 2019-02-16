@@ -4,7 +4,6 @@ const chalk = require('chalk');
 const chokidar = require('chokidar');
 const execa = require('execa');
 const figures = require('figures');
-const keypress = require('keypress');
 const debounce = require('lodash.debounce');
 const Multispinner = require('multispinner');
 const path = require('path');
@@ -117,26 +116,10 @@ function startDevServer() {
     devServer.stdout.pipe(process.stdout);
     devServer.stderr.pipe(process.stderr);
     afterEmit(devServer, /Compiled successfully/)
-        .then(() => whenQuiet(devServer, 6000))
-        .then(() => {
-            // make `process.stdin` begin emitting "keypress" events
-            keypress(process.stdin);
-
-            // listen for the "keypress" event
-            process.stdin.on('keypress', function(_, key) {
-                if (!key) {
-                    return;
-                }
-                if (key.name === 'q' || (key.name === 'c' && key.ctrl)) {
-                    gracefulExit();
-                }
-            });
-
-            process.stdin.setRawMode(true);
-            process.stdin.resume();
-
-            warn(`Press ${chalk.green.bold('q')} to exit the dev server.`);
-        })
+        .then(() => whenQuiet(devServer, 3000))
+        .then(() =>
+            warn(`Press ${chalk.green.bold('q')} to exit the dev server.`)
+        )
         .catch(e => {
             console.error(`Could not setup devServer: ${e.toString()}`);
         });

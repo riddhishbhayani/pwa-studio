@@ -74,9 +74,14 @@ const alreadyProvisioned = hostname => {
     return exists;
 };
 
-function getCert(hostname) {
-    // Manually create a Promise here to obtain a "reject" function in closure,
-    // so we can use a setTimeout to reject the promise after 30 seconds.
+async function runDevCert(hostname) {
+    return devcert.certificateFor(hostname).then(certBuffers => ({
+        key: certBuffers.key.toString('utf8'),
+        cert: certBuffers.cert.toString('utf8')
+    }));
+}
+
+async function getCert(hostname) {
     return new Promise(async (resolve, reject) => {
         const timeout = setTimeout(
             () =>
@@ -111,33 +116,23 @@ function getCert(hostname) {
             debug(
                 `either provisioned already or sudo is active, trying getCert`
             );
-            return tryGetCert();
+            return runDevCert();
         }
 
-        // Can only enter the password if we're in a real TTY
-        if (process.stdin.isTTY) {
-            console.warn(
-                chalk.greenBright(`Creating a local development domain requires temporary administrative privileges.
+        // If we get here, we have regular privileges
+        console.warn(
+            chalk.greenBright(`Creating a local development domain requires temporary administrative privileges.
 Please enter the password for ${chalk.whiteBright(
-                    username
-                )} on ${chalk.whiteBright(os.hostname())}.`)
-            );
-            return tryGetCert(
-                e =>
-                    new Error(
-                        `Could not authenticate to modify hostfile and create protected keyfile: ${
-                            e.message
-                        }`
-                    )
-            );
-        }
-
-        // If we get here, we have neither elevated privileges nor a TTY.
-        clearTimeout(timeout);
-        return reject(
-            new Error(
-                'Creating a local development domain requires an interactive terminal for the user to answer prompts. Run the development server (e.g. `yarn run watch:venia`) by itself in the terminal to continue.'
-            )
+                username
+            )} on ${chalk.whiteBright(os.hostname())}.`)
+        );
+        return tryGetCert(
+            e =>
+                new Error(
+                    `Could not authenticate to modify hostfile and create protected keyfile: ${
+                        e.message
+                    }`
+                )
         );
     });
 }
