@@ -18,20 +18,23 @@ const padRight = (str, toLen) =>
     str.length < toLen ? str + spaces(toLen - str.length) : str;
 
 const emoji = codePoint => String.fromCodePoint(codePoint);
+// Add a space for terms that display double-length emoji badly
+// (i'm looking at you, iTerm)
+const logoEmoji = codePoint => emoji(codePoint) + ' ';
 
 const icons =
     process.platform === 'win32'
         ? {
               ready: figures.play,
               buildpack: 'BP',
+              bundle: figures.hamburger,
               lock: figures.hamburger,
               spinFrames: line
           }
         : {
               ready: figures.play,
-              // Add a space for terms that display double-length emoji badly
-              // (i'm looking at you, iTerm)
-              buildpack: emoji(129520) + ' ', // toolbox
+              buildpack: logoEmoji(129520), // toolbox
+              bundle: emoji(128230), // package
               lock: emoji(128272), // lock and key
               spinFrames: dots
           };
@@ -52,6 +55,11 @@ const typeEntries = Object.entries({
         badge: figures.star,
         color: 'yellowBright',
         label: 'bonus'
+    },
+    bundle: {
+        badge: icons.bundle,
+        color: 'cyanBright',
+        label: 'bundle'
     }
 });
 
@@ -154,7 +162,7 @@ function logger(scope = icons.buildpack, output = process.stdout) {
 
 const highlight = str => chalk.whiteBright.bold(str);
 
-function spinner(prefix = 'Waiting for', scope = icons.buildpack) {
+function spinner(prefix, scope) {
     const running = [];
     const succeeded = [];
     const failed = [];
@@ -210,9 +218,36 @@ function spinner(prefix = 'Waiting for', scope = icons.buildpack) {
     };
 }
 
+function simpleQueue(prefix, scope) {
+    const log = new signale.Signale({
+        config: {
+            underlineLabel: false
+        },
+        scope
+    });
+    return {
+        start(jobName) {
+            log.await(`${prefix}: highlight(${jobName})`);
+        },
+        succeed(jobName) {
+            log.success(`${prefix} succeeded: ${jobName}`);
+        },
+        fail(jobName, message) {
+            log.error(`${prefix} failed: ${jobName}`, message);
+        }
+    };
+}
+
+const tasks = (prefix = 'Waiting for', scope = icons.buildpack) =>
+    // If screen redrawing is supported, use spinners.
+    process.stdout.moveCursor
+        ? spinner(prefix, scope)
+        : simpleQueue(prefix, scope);
+
 module.exports = {
     highlight,
     logger,
-    spinner,
+    logoEmoji,
+    tasks,
     types
 };

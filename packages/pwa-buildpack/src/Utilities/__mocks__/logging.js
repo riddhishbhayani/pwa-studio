@@ -8,7 +8,7 @@ const mockLogger = Object.keys(types).reduce(
     {}
 );
 
-const mockSpinner = {
+const mockTasks = {
     start: jest.fn(),
     succeed: jest.fn(),
     fail: jest.fn()
@@ -17,7 +17,7 @@ const mockSpinner = {
 module.exports = {
     highlight: x => x,
     mockLogger,
-    mockSpinner,
+    mockTasks,
     logger: () => mockLogger,
-    spinner: () => mockSpinner
+    tasks: () => mockTasks
 };

@@ -4,14 +4,16 @@ const magentoUrlEnvName = 'MAGENTO_BACKEND_URL';
 const {
     highlight,
     logger,
-    spinner
+    logoEmoji,
+    tasks
 } = require('@magento/pwa-buildpack/dist/Utilities/logging');
 let magentoBackendUrl;
 
-const log = logger('Venia');
+const veniaPrefix = logoEmoji(9881); // gear
+const log = logger(veniaPrefix);
 
 async function validateQueries(validEnv) {
-    const progress = spinner('Validating', 'Venia');
+    const progress = tasks('Validating', veniaPrefix);
     const mainJob = 'GraphQL queries';
     progress.start(mainJob);
     if (process.env.NODE_ENV === 'production') {
@@ -134,7 +136,7 @@ if (module === require.main) {
             );
         } catch (e) {
             try {
-                log.error(e);
+                log.error('while validating queries', e);
                 const distEnv = require('dotenv').config({
                     path: require('path').resolve(__dirname, '.env.dist')
                 });

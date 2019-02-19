@@ -6,13 +6,18 @@ const execa = require('execa');
 const debounce = require('lodash.debounce');
 const path = require('path');
 const StreamSnitch = require('stream-snitch');
+const { LineStream } = require('byline');
+const { Transform } = require('stream');
 
 const {
     logger,
-    spinner
+    logoEmoji,
+    tasks
 } = require('../packages/pwa-buildpack/dist/Utilities/logging');
 
-const log = logger();
+const watchAllPrefix = logoEmoji(9881); // gear
+
+const log = logger(watchAllPrefix);
 
 const gracefulExit = () => {
     console.log('\n');
@@ -77,7 +82,7 @@ const restartDevServerOnChange = [
     'yarn.lock'
 ];
 
-const jobs = spinner('Building');
+const jobs = tasks('Building', watchAllPrefix);
 mustWatch.forEach(jobs.start);
 
 const eventBuffer = [];
@@ -95,6 +100,26 @@ function summarizeEvents() {
         name,
         file: `${value} files`
     }));
+}
+
+// For consistency and readability, replace the webpack-log prefixes in
+// webpack-dev-server and webpack-dev-middleware output with the logger output
+function prettifyWebpackLogs() {
+    const webpackPrefix = /^.*?wd[sm].*?:\s*/;
+    const lines = new LineStream();
+    const xform = new Transform({
+        transform(data, _, done) {
+            const line = data.toString('utf8');
+            const match = line.match(webpackPrefix);
+            if (match) {
+                log.bundle(line.slice(match[0].length));
+            } else {
+                this.push(line);
+            }
+            done();
+        }
+    });
+    return lines.pipe(xform);
 }
 
 let devServer;
@@ -115,8 +140,8 @@ function startDevServer() {
     devServer.on('exit', () => {
         devServer.exited = true;
     });
-    devServer.stdout.pipe(process.stdout);
-    devServer.stderr.pipe(process.stderr);
+    devServer.stdout.pipe(prettifyWebpackLogs()).pipe(process.stdout);
+    devServer.stderr.pipe(prettifyWebpackLogs()).pipe(process.stderr);
     afterEmit(devServer, /Compiled successfully/)
         .then(() => whenQuiet(devServer, 3000))
         .then(() => log.info('Press CTRL-C to exit.'))
@@ -203,8 +228,12 @@ function watchVeniaWithRestarts() {
 }
 
 watchDependencies()
+    .catch(e => {
+        log.error('while building dependencies', e);
+        process.exit(1);
+    })
     .then(watchVeniaWithRestarts)
     .catch(e => {
-        log.error(e);
+        log.error('while watching Venia files', e);
         process.exit(1);
     });

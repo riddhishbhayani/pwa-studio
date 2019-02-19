@@ -1,10 +1,11 @@
 const {
     highlight,
-    logger
+    logger,
+    logoEmoji
 } = require('@magento/pwa-buildpack/dist/Utilities/logging');
 
 // writing to stdout interferes with webpack json output
-const log = logger('Venia', process.stderr);
+const log = logger(logoEmoji(9881), process.stderr);
 
 function validateEnvironment(env) {
     const envalid = require('envalid');
