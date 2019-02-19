@@ -3,21 +3,20 @@ require('events').EventEmitter.defaultMaxListeners = 100;
 const chalk = require('chalk');
 const chokidar = require('chokidar');
 const execa = require('execa');
-const figures = require('figures');
 const debounce = require('lodash.debounce');
-const Multispinner = require('multispinner');
 const path = require('path');
 const StreamSnitch = require('stream-snitch');
 
-const warn = (msg, ...args) => {
-    console.warn(
-        chalk.yellowBright(`\n  ${figures.warning}  ${msg}\n`),
-        ...args
-    );
-};
+const {
+    logger,
+    spinner
+} = require('../packages/pwa-buildpack/dist/Utilities/logging');
+
+const log = logger();
 
 const gracefulExit = () => {
-    warn('Exiting watch mode.');
+    console.log('\n');
+    log.info('Exited watch mode.');
     process.exit(0);
 };
 
@@ -44,10 +43,10 @@ function whenQuiet(childProcess, timeout = 1000) {
             'close',
             code =>
                 code === 0 ||
-                reject(
-                    new Error(
-                        `${childProcess.pid} exited abnormally, code ${code}`
-                    )
+                log.error(
+                    `Build watch process ${
+                        childProcess.pid
+                    } exited abnormally, code ${code}`
                 )
         );
 
@@ -78,9 +77,8 @@ const restartDevServerOnChange = [
     'yarn.lock'
 ];
 
-const spinner = new Multispinner([...mustWatch, 'webpack-dev-server'], {
-    preText: 'initial build of'
-});
+const jobs = spinner('Building');
+mustWatch.forEach(jobs.start);
 
 const eventBuffer = [];
 
@@ -106,6 +104,10 @@ function startDevServer() {
         'webpack-dev-server',
         ['--stdin', '--no-progress', '--color', '--env.mode', 'development'],
         {
+            env: Object.assign({}, process.env, {
+                CLI_WIDTH: process.stdout.columns,
+                FORCE_COLOR: process.env.NO_COLOR ? '' : 1
+            }),
             cwd: path.join(rootDir, 'packages/venia-concept'),
             localDir: path.join(rootDir, 'node_modules/.bin')
         }
@@ -117,23 +119,20 @@ function startDevServer() {
     devServer.stderr.pipe(process.stderr);
     afterEmit(devServer, /Compiled successfully/)
         .then(() => whenQuiet(devServer, 3000))
-        .then(() =>
-            warn(`Press ${chalk.green.bold('q')} to exit the dev server.`)
-        )
+        .then(() => log.info('Press CTRL-C to exit.'))
         .catch(e => {
-            console.error(`Could not setup devServer: ${e.toString()}`);
+            log.error('Could not setup devServer', e);
         });
 }
 
 let isClosing = false;
 const runVeniaWatch = debounce(() => {
     if (!devServer) {
-        warn('Launching webpack-dev-server');
         return startDevServer();
     }
     const fileSummary =
         eventBuffer.length > 20 ? summarizeEvents() : eventBuffer;
-    warn(
+    log.watch(
         `Relaunching webpack-dev-server due to: \n  - ${fileSummary
             .map(
                 ({ name, file }) =>
@@ -168,13 +167,12 @@ function runOnPackages(packages, cmd) {
 }
 
 function watchDependencies() {
-    return whenQuiet(runOnPackages(mustWatch, 'watch')).then(
-        () => mustWatch.forEach(dep => spinner.success(dep)),
-        e => {
-            mustWatch.forEach(dep => spinner.error(dep));
+    return whenQuiet(runOnPackages(mustWatch, 'watch'))
+        .then(() => mustWatch.forEach(dep => jobs.succeed(dep)))
+        .catch(e => {
+            mustWatch.forEach(dep => jobs.error(dep));
             throw e;
-        }
-    );
+        });
 }
 
 function watchRestartRequirements() {
@@ -184,6 +182,7 @@ function watchRestartRequirements() {
 }
 
 function watchVeniaWithRestarts() {
+    jobs.start('PWADevServer');
     const eventsToListenTo = ['add', 'change', 'unlink'];
     const watcher = watchRestartRequirements();
     const enqueue = (name, file) => {
@@ -193,7 +192,7 @@ function watchVeniaWithRestarts() {
     // chokidar appears not to have `.removeEventListener`, so this is the next
     // best thing: just reassign functions.
     let handler = debounce(() => {
-        spinner.success('webpack-dev-server');
+        jobs.succeed('PWADevServer');
         handler = enqueue;
         runVeniaWatch();
     }, 900);
@@ -206,6 +205,6 @@ function watchVeniaWithRestarts() {
 watchDependencies()
     .then(watchVeniaWithRestarts)
     .catch(e => {
-        console.error(e);
+        log.error(e);
         process.exit(1);
     });

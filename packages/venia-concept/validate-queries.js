@@ -1,11 +1,21 @@
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = 0;
 const { URL } = require('url');
 const magentoUrlEnvName = 'MAGENTO_BACKEND_URL';
+const {
+    highlight,
+    logger,
+    spinner
+} = require('@magento/pwa-buildpack/dist/Utilities/logging');
 let magentoBackendUrl;
 
-async function validateQueries(validEnv, log = console.log.bind(console)) {
+const log = logger('Venia');
+
+async function validateQueries(validEnv) {
+    const progress = spinner('Validating', 'Venia');
+    const mainJob = 'GraphQL queries';
+    progress.start(mainJob);
     if (process.env.NODE_ENV === 'production') {
-        log(`NODE_ENV=production, skipping query validation`);
+        log.warn(`NODE_ENV=production, skipping query validation`);
         return false;
     }
     magentoBackendUrl = validEnv[magentoUrlEnvName];
@@ -15,6 +25,7 @@ async function validateQueries(validEnv, log = console.log.bind(console)) {
         magentoBackendUrl = new URL(magentoBackendUrl);
         graphQLEndpoint = new URL('/graphql', magentoBackendUrl);
     } catch (e) {
+        progress.fail(mainJob);
         throw new Error(
             `Could not build a GraphQL endpoint URL from env var ${magentoUrlEnvName}: '${magentoBackendUrl}'. ${
                 e.message
@@ -35,7 +46,8 @@ async function validateQueries(validEnv, log = console.log.bind(console)) {
     });
 
     async function getSchema() {
-        log(`Validating queries based on schema at ${graphQLEndpoint.href}...`);
+        const label = 'Magento instance GraphQL schema';
+        progress.start(label);
         const result = await makePromise(execute(link, { query }));
         if (result.errors) {
             const errorMessages = `The introspection query to ${
@@ -43,6 +55,7 @@ async function validateQueries(validEnv, log = console.log.bind(console)) {
             } failed with the following errors:\n\t- ${result.errors
                 .map(({ message }) => message)
                 .join('\n\t- ')}`;
+            progress.fail(label);
             if (
                 errorMessages.includes('GraphQL introspection is not allowed')
             ) {
@@ -55,12 +68,12 @@ async function validateQueries(validEnv, log = console.log.bind(console)) {
                 throw new Error(errorMessages);
             }
         }
+        progress.succeed(label);
         return result;
     }
 
     async function getRuleConfig() {
         const schemaJson = await getSchema();
-        log(`Retrieved introspection query. Configuring validator...`);
         return [
             'error',
             {
@@ -95,6 +108,7 @@ async function validateQueries(validEnv, log = console.log.bind(console)) {
     const files = cli.resolveFileGlobPatterns(['src/**/*.{js,graphql,gql}']);
     const report = cli.executeOnFiles(files);
     if (report.errorCount > 0) {
+        progress.fail(mainJob);
         const formatter = cli.getFormatter();
         throw new Error(`Errors found!
 
@@ -107,6 +121,7 @@ async function validateQueries(validEnv, log = console.log.bind(console)) {
 Use GraphiQL or another schema exploration tool on the Magento store to learn more.
   `);
     }
+    progress.succeed(mainJob);
 }
 
 module.exports = validateQueries;
@@ -117,22 +132,21 @@ if (module === require.main) {
             await validateQueries(
                 require('./validate-environment')(process.env)
             );
-            console.log('All queries valid against attached GraphQL API.');
         } catch (e) {
             try {
-                console.error(e.message);
+                log.error(e);
                 const distEnv = require('dotenv').config({
                     path: require('path').resolve(__dirname, '.env.dist')
                 });
                 const distBackend = new URL(distEnv.parsed[magentoUrlEnvName]);
 
                 if (distBackend.href !== magentoBackendUrl.href) {
-                    console.error(
-                        `\nThe current default backend for Venia development is:\n\n\t${
+                    log.warn(
+                        `\nThe current default backend for Venia development is:\n\n\t${highlight(
                             distBackend.href
-                        }\n\nThe configured ${magentoUrlEnvName} in the current environment is\n\n\t${
+                        )}\n\nThe configured ${magentoUrlEnvName} in the current environment is\n\n\t${highlight(
                             magentoBackendUrl.href
-                        }\n\nConsider updating your .env file or environment variables to resolve the reported issues.`
+                        )}\n\nConsider updating your .env file or environment variables to resolve the reported issues.`
                     );
                 }
             } finally {

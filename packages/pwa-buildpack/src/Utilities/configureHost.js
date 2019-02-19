@@ -1,12 +1,14 @@
 const debug = require('../util/debug').makeFileLogger(__filename);
+const { highlight, logger } = require('./logging');
 const { join } = require('path');
 const { createHash } = require('crypto');
 const devcert = require('devcert');
 const os = require('os');
-const chalk = require('chalk');
 const execa = require('execa');
 const isElevated = require('is-elevated');
 const appConfigPath = require('application-config-path');
+const log = logger();
+
 const { username } = os.userInfo();
 
 // On OSX and Windows, the default app config paths contain spaces. If copying
@@ -38,9 +40,6 @@ proto.isNSSInstalled = function() {
         return false;
     }
 };
-
-const DEFAULT_NAME = 'my-pwa';
-const DEV_DOMAIN = 'local.pwadev';
 
 const willNotPasswordPrompt = async () => {
     try {
@@ -75,70 +74,35 @@ const alreadyProvisioned = hostname => {
 };
 
 async function runDevCert(hostname) {
-    return devcert.certificateFor(hostname).then(certBuffers => ({
+    debug(`devcert.certificateFor(${hostname}) acquiring host & cert`);
+    const certBuffers = await devcert.certificateFor(hostname);
+    debug(`devcert.certificateFor(${hostname}) success!`);
+    return {
         key: certBuffers.key.toString('utf8'),
         cert: certBuffers.cert.toString('utf8')
-    }));
+    };
 }
 
 async function getCert(hostname) {
-    return new Promise(async (resolve, reject) => {
-        const timeout = setTimeout(
-            () =>
-                reject(
-                    new Error(
-                        'Timed out waiting for SSL certificate generation and trust.'
-                    )
-                ),
-            30000
+    // Should be able to fetch non-interactively in either of these cases
+    if (alreadyProvisioned(hostname) || (await willNotPasswordPrompt())) {
+        debug(`either provisioned already or sudo is active, trying getCert`);
+    } else {
+        // warn that password prompt will occur
+        log.info(
+            `Creating a local development domain requires temporary administrative privileges.`
         );
-
-        // Resolve with the cert info, or reject using a custom error argument.
-        const tryGetCert = async (rejecter = x => x) => {
-            try {
-                const certBuffers = await devcert.certificateFor(hostname);
-                debug(`devcert.certificateFor(${hostname}) succeeded`);
-                resolve({
-                    key: certBuffers.key.toString('utf8'),
-                    cert: certBuffers.cert.toString('utf8')
-                });
-            } catch (e) {
-                debug(`devcert.certificateFor(${hostname}) failed, %s`, e);
-                reject(await rejecter(e));
-            } finally {
-                clearTimeout(timeout);
-                debug(`cleared getCert timeout`);
-            }
-        };
-
-        // Should be able to fetch non-interactively in either of these cases
-        if (alreadyProvisioned(hostname) || (await willNotPasswordPrompt())) {
-            debug(
-                `either provisioned already or sudo is active, trying getCert`
-            );
-            return runDevCert();
-        }
-
-        // If we get here, we have regular privileges
-        console.warn(
-            chalk.greenBright(`Creating a local development domain requires temporary administrative privileges.
-Please enter the password for ${chalk.whiteBright(
+        log.pending(
+            `Please enter the password for ${highlight(
                 username
-            )} on ${chalk.whiteBright(os.hostname())}.`)
+            )} on ${highlight(os.hostname())}.`
         );
-        return tryGetCert(
-            e =>
-                new Error(
-                    `Could not authenticate to modify hostfile and create protected keyfile: ${
-                        e.message
-                    }`
-                )
-        );
-    });
+    }
+    return runDevCert(hostname);
 }
 
 function getUniqueDomainAndPorts(customName, addUniqueHash) {
-    let name = DEFAULT_NAME;
+    let name = configureHost.DEFAULT_NAME;
     if (typeof customName === 'string') {
         name = customName;
     } else {
@@ -153,11 +117,8 @@ function getUniqueDomainAndPorts(customName, addUniqueHash) {
             }
             name = pkg.name;
         } catch (e) {
-            console.warn(
-                debug.errorMsg(
-                    `Using default "${name}" prefix. Could not autodetect project name from package.json: `
-                ),
-                e
+            log.warn(
+                `Using default "${name}" prefix. Could not autodetect project name from package.json.`
             );
         }
     }
@@ -218,30 +179,34 @@ async function configureHost({
     if (exactDomain) {
         hostname = exactDomain;
     } else {
-        hostname = uniqueSubdomain + '.' + DEV_DOMAIN;
+        hostname = uniqueSubdomain + '.' + configureHost.DEV_DOMAIN;
     }
     if (!alreadyProvisioned(hostname) && interactive === false) {
         return false;
     }
     try {
-        return {
+        const hostInfo = {
             hostname,
             ports,
             ssl: await getCert(hostname)
         };
+        log.secure(`Acquired ${highlight(hostname)} and its SSL certificate`);
+        return hostInfo;
     } catch (e) {
         throw Error(
             debug.errorMsg(`Could not setup development domain: \n${e.message}.
 
     If this keeps happening, you may need to delete the configuration files at
         ${devCertConfigPath}
-    and try again.`)
+    and try again.
+
+    `)
         );
     }
 }
 
 configureHost.getUniqueDomainAndPorts = getUniqueDomainAndPorts;
-configureHost.DEFAULT_NAME = DEFAULT_NAME;
-configureHost.DEV_DOMAIN = DEV_DOMAIN;
+configureHost.DEFAULT_NAME = 'my-pwa';
+configureHost.DEV_DOMAIN = 'local.pwadev';
 
 module.exports = configureHost;
