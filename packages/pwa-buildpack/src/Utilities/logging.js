@@ -12,7 +12,7 @@ const CLI_FORMAT_ANSI_ADDITIONS = 8;
 const SIGNALE_PREAMBLE_LENGTH = 9;
 const RIGHT_PADDING = 1;
 
-const getTermWidth = () => cliWidth({ defaultWidth: 50 });
+const getTermWidth = () => cliWidth({ defaultWidth: 80 });
 const spaces = length => Array.from({ length }, () => ' ').join('');
 const padRight = (str, toLen) =>
     str.length < toLen ? str + spaces(toLen - str.length) : str;
@@ -227,13 +227,13 @@ function simpleQueue(prefix, scope) {
     });
     return {
         start(jobName) {
-            log.await(`${prefix}: highlight(${jobName})`);
+            log.await(`${prefix}: ${highlight(jobName)}`);
         },
         succeed(jobName) {
-            log.success(`${prefix} succeeded: ${jobName}`);
+            log.success(`${prefix} succeeded: ${highlight(jobName)}`);
         },
         fail(jobName, message) {
-            log.error(`${prefix} failed: ${jobName}`, message);
+            log.error(`${prefix} failed: ${highlight(jobName)}`, message);
         }
     };
 }
